@@ -1,0 +1,91 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Nepal Immunization Registry</title>
+</head>
+<body>
+
+    <h1>Nepal Immunization Registry</h1>
+
+    <h2>Register Patient</h2>
+    <form id="patientForm">
+        Name: <input type="text" id="p_name"><br>
+        Gender: <input type="text" id="p_gender"><br>
+        Birthdate: <input type="text" id="p_birthdate"><br>
+        <button type="button" onclick="submitPatient()">Register Patient</button>
+    </form>
+    <div id="patient_result"></div>
+
+    <hr>
+    <h2>Register Practitioner</h2>
+    <form id="practitionerForm">
+        Name: <input type="text" id="practitioner_name"><br>
+        Organization: <input type="text" id="organization"><br>
+        <button type="button" onclick="submitPractitioner()">Register Practitioner</button>
+    </form>
+    <div id="practitioner_result"></div>
+
+    <hr>
+
+    <h2>Register Immunization</h2>
+    <form id="immunizationForm">
+        Patient ID: <input type="text" id="patient_id"><br>
+        Vaccine Name: <input type="text" id="vaccine_name"><br>
+        Vaccine Code: <input type="text" id="vaccine_code"><br>
+        Date: <input type="text" id="date"><br>
+        Dose Number: <input type="text" id="dose_number"><br>
+        Practitioner ID: <input type="text" id="practitioner_id"><br>
+        <button type="button" onclick="submitImmunization()">Submit</button>
+    </form>
+    <div id="immunization_result"></div>
+
+    <script>
+        async function submitPatient() {
+            const response = await fetch('/patient', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    name: document.getElementById('p_name').value,
+                    gender: document.getElementById('p_gender').value,
+                    birthdate: document.getElementById('p_birthdate').value
+                })
+            });
+            const result = await response.json();
+            document.getElementById('patient_result').innerHTML =
+                'Patient created. ID: ' + result.id;
+        }
+        async function submitPractitioner() {
+            const response = await fetch('/practitioner', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    name: document.getElementById('practitioner_name').value,
+                    organization: document.getElementById('organization').value
+                })
+            });
+            const result = await response.json();
+            document.getElementById('practitioner_result').innerHTML =
+                'Practitioner created. ID: ' + result.id;
+        }
+        async function submitImmunization() {
+            const response = await fetch('/immunization', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    patient_id: document.getElementById('patient_id').value,
+                    vaccine_name: document.getElementById('vaccine_name').value,
+                    vaccine_code: document.getElementById('vaccine_code').value,
+                    date: document.getElementById('date').value,
+                    dose_number: document.getElementById('dose_number').value,
+                    practitioner_id: document.getElementById('practitioner_id').value
+                })
+            });
+            const result = await response.json();
+            document.getElementById('immunization_result').innerHTML =
+                'Immunization recorded. ID: ' + result.id;
+        }
+    </script>
+
+</body>
+</html>
