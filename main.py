@@ -33,6 +33,39 @@ class ImmunizationStatus(BaseModel):
     dose_number: int
     practitioner_id: int
 
+class BundleRequest(BaseModel):
+    name: str
+    gender: str
+    birthdate: str
+    vaccine_name: str
+    vaccine_code: str
+    dose_number: int
+    date: str
+    practitioner_name: str
+    organization: str
+
+@app.post('/patient/validate')
+def create_validated_patient(data: PatientRequest):
+    validated_patient = {
+        "resourceType" : "Patient",
+        "name" : [{"family": data.name.split()[-1], "given": [data.name.split()[0]]}],
+        "gender" : data.gender,
+        "birthDate" : data.birthdate
+    }
+    response = requests.post(f"{HAPI_BASE}/Patient/$validate",
+                             json = validated_patient,
+                             headers={"Content-Type": "application/fhir+json"})
+    validation_result = response.json()
+    issues = validation_result.get("issue", [])
+    has_errors = any(issue["severity"] == "error" for issue in issues)
+    if has_errors:
+        return validation_result
+    else:
+        save_response = requests.post(f"{HAPI_BASE}/Patient",
+                                      json = validated_patient,
+                                      headers= {"Content-Type": "application/fhir+json"})
+        return save_response.json()
+
 @app.post("/patient")
 def create_patient(data: PatientRequest):
     patient = {
@@ -126,5 +159,74 @@ def create_immunization(data: ImmunizationStatus):
 def get_immunization(immunization_id : str):
     response = requests.get(f"{HAPI_BASE}/Immunization/{immunization_id}")
     return response.json() 
+
+@app.post("/register-complete")
+def complete_bundle(data: BundleRequest):
+    bundle = {
+        "resourceType": "Bundle",
+        "type": "transaction",
+        "entry": [
+            {
+                "fullUrl": "urn:uuid:patient-temp-id",
+                "resource": {
+                    "resourceType": "Patient",
+                    "name": [{"family": data.name.split()[-1], "given": [data.name.split()[0]]}],
+                    "gender": data.gender,
+                    "birthDate": data.birthdate
+                },
+                "request": {
+                    "method": "POST",
+                    "url": "Patient"
+                }
+            },
+            {
+                "fullUrl": "urn:uuid:practitioner-temp-id",
+                "resource": {
+                    "resourceType": "Practitioner",
+                    "name": [{"family": data.practitioner_name.split()[-1], "given": [data.practitioner_name.split()[0]]}],
+                    "qualification": [{"issuer": {"display": data.organization}}]
+                },
+                "request": {
+                    "method": "POST",
+                    "url": "Practitioner"
+                }
+            },
+            {
+                "fullUrl": "urn:uuid:immunization-temp-id",
+                "resource": {
+                    "resourceType": "Immunization",
+                    "status": "completed",
+                    "vaccineCode":{
+                        "coding": [{
+                            "system" : "http://hl7.org/fhir/sid/cvx",
+                            "code" : data.vaccine_code,
+                            "display" : data.vaccine_name
+                        }]
+                    },
+                    "patient": {
+                        "reference": "urn:uuid:patient-temp-id"
+                    },
+                    "occurrenceDateTime": data.date,
+                    "performer": [{
+                        "actor": {
+                            "reference": "urn:uuid:practitioner-temp-id"
+                        }
+                    }],
+                    "protocolApplied": [{
+                        "doseNumberPositiveInt" : data.dose_number
+                        }]
+                },
+                "request": {
+                    "method": "POST",
+                    "url": "Immunization"
+                }
+            }
+        ]
+    }
+    response = requests.post(f"{HAPI_BASE}",
+                             json = bundle,
+                             headers = {"Content-Type": "application/fhir+json"})
+    return response.json()
+
 
 
