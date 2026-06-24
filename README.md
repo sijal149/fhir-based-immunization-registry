@@ -1,5 +1,7 @@
 # FHIR-Based Immunization Registry
 
+**Live Demo:** https://fhir-based-immunization-registry-production.up.railway.app/docs
+
 ## What is this
 Nepal's immunization data is fragmented across hundreds of health facilities 
 with no common standard — a child vaccinated in Kathmandu has no retrievable 
