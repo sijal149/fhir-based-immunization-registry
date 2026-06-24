@@ -42,6 +42,48 @@ class BundleRequest(BaseModel):
     practitioner_name: str
     organization: str
 
+@app.get("/valueset/nepal-vaccines")
+def nepal_vaccine_set():
+    return {
+  "resourceType": "ValueSet",
+  "id": "nepal-vaccines",
+  "name": "NepalEPIVaccines",
+  "status": "active",
+  "compose": {
+    "include": [{
+      "system": "http://health.gov.np/fhir/CodeSystem/vaccines",
+      "concept": [
+        {
+            "code":"NP-BCG",
+            "display": "BCG Vaccine"
+        },
+        {
+            "code":"NP-OPV",
+            "display": "Oral Polio Vaccine"
+        },
+        {
+            "code":"NP-PENTA",
+            "display":"Pentavalent Vaccine"
+        }
+      ]
+    }]
+  }
+}
+    
+def extract_valid_codes(valueset):
+    valid_codes = set()
+    codes = valueset.get("compose", {}).get("include",[])
+    for item in codes:
+        concepts = item.get("concept", [])
+        for concept in concepts:
+            code = concept.get("code")
+            if code:
+                valid_codes.add(code)            
+    return valid_codes
+
+valueset = nepal_vaccine_set()
+allowed_codes = extract_valid_codes(valueset)
+
 @app.post('/patient/validate')
 def create_validated_patient(data: PatientRequest):
     try:
@@ -202,44 +244,50 @@ def get_practitioner(practitioner_id: str):
 @app.post("/immunization")
 def create_immunization(data: ImmunizationStatus):
     try:
-        immunization = {
-            "resourceType": "Immunization",
-            "status": "completed",
-            "vaccineCode":{
-                "coding": [{
-                    "system" : "http://hl7.org/fhir/sid/cvx",
-                    "code" : data.vaccine_code,
-                    "display" : data.vaccine_name
-                }]
-            },
-            "patient": {
-                "reference": f"Patient/{data.patient_id}"
-            },
-            "occurrenceDateTime": data.date,
-            "performer": [{
-                "actor": {
-                    "reference": f"Practitioner/{data.practitioner_id}"
-                }
-            }],
-            "protocolApplied": [{
-                "doseNumberPositiveInt" : data.dose_number
-                }]
-        }
-        response = requests.post(f"{HAPI_BASE}/Immunization",
-                                json = immunization,
-                                headers = {"Content-Type": "application/fhir+json"},
-                                timeout=10)
-        return response.json()
+        if data.vaccine_code not in allowed_codes:
+            raise HTTPException(
+                status_code=400,
+                detail="Code not valid. Bad request."
+            )
+        else:
+            immunization = {
+                "resourceType": "Immunization",
+                "status": "completed",
+                "vaccineCode":{
+                    "coding": [{
+                        "system" : "http://hl7.org/fhir/sid/cvx",
+                        "code" : data.vaccine_code,
+                        "display" : data.vaccine_name
+                    }]
+                },
+                "patient": {
+                    "reference": f"Patient/{data.patient_id}"
+                },
+                "occurrenceDateTime": data.date,
+                "performer": [{
+                    "actor": {
+                        "reference": f"Practitioner/{data.practitioner_id}"
+                    }
+                }],
+                "protocolApplied": [{
+                    "doseNumberPositiveInt" : data.dose_number
+                    }]
+            }
+            response = requests.post(f"{HAPI_BASE}/Immunization",
+                                    json = immunization,
+                                    headers = {"Content-Type": "application/fhir+json"},
+                                    timeout=10)
+            return response.json()
     except requests.exceptions.ConnectionError:
         raise HTTPException(
-            status_code=503,
-            detail="FHIR Server Unavailable. Is HAPI running?"
-        )
+                status_code=503,
+                detail="FHIR Server Unavailable. Is HAPI running?"
+            )
     except requests.exceptions.Timeout:
         raise HTTPException(
-            status_code=504,
-            detail="Server too slow. Try again later."
-        )
+                status_code=504,
+                detail="Server too slow. Try again later."
+            )
 
 @app.get("/immunization/{immunization_id}")
 def get_immunization(immunization_id : str):
@@ -338,3 +386,19 @@ def complete_bundle(data: BundleRequest):
         )
 
 
+""" 
+{
+  "resourceType": "ValueSet",
+  "id": "nepal-vaccines",
+  "name": "NepalEPIVaccines",
+  "status": "active",
+  "compose": {
+    "include": [{
+      "system": "http://health.gov.np/fhir/CodeSystem/vaccines",
+      "concept": [
+        // your codes here
+      ]
+    }]
+  }
+} 
+"""
