@@ -3,12 +3,14 @@ import requests
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi import FastAPI, HTTPException,Request
+import os
 
 templates = Jinja2Templates(directory="templates")
 
 app = FastAPI()
 
-HAPI_BASE = "http://localhost:8080/fhir"
+HAPI_BASE = os.getenv("HAPI_BASE_URL", "http://localhost:8080/fhir")
+
 
 @app.get("/")
 def home(request: Request):
@@ -384,7 +386,6 @@ def complete_bundle(data: BundleRequest):
             status_code=504,
             detail="Server too slow. Try again later."
         )
-
 
 """ 
 {
