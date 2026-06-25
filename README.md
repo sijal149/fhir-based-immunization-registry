@@ -24,6 +24,7 @@ FHIR can read, write, and exchange data with this registry.
 - `GET /practitioner/{id}` — Retrieve practitioner by ID
 - `POST /immunization` — Record immunization with patient and practitioner references
 - `GET /immunization/{id}` — Retrieve immunization record
+-- `POST /convert/adt` — converts HL7 v2 ADT message to FHIR Patient resource
 
 ## How to Run
 

@@ -437,3 +437,84 @@ async def convert_adt(message: str = Body(..., media_type="text/plain")):
             status_code=504,
             detail="Server too slow. Try again later."
         )
+class Observation_resource(BaseModel):
+    patient_id : str
+    vital_sign_type : str
+    value: str
+    unit: str
+@app.post("/observation")
+def create_observation(data: Observation_resource):
+    try:
+        vitals_mapping = {"heart rate" : "8867-4", "body temperature": "8310-5","respiratory rate": "9279-1",
+                        "blood pressure systolic" : "8480-6", "blood pressure diastolic":"8462-4", "oxygen saturation":"2708-6"} 
+        loinc_code = vitals_mapping.get(data.vital_sign_type.strip().lower(), "unknown")
+        reference_ranges = {
+            "heart rate": {"low": 60, "high": 100},
+            "body temperature": {"low": 36.1, "high": 37.2},
+            "respiratory rate": {"low": 12, "high": 20},
+            "oxygen saturation": {"low": 95, "high": 100},
+            "blood pressure systolic": {"low": 90, "high": 120},
+            "blood pressure diastolic": {"low": 60, "high": 80}
+            }
+        ranges = reference_ranges.get(data.vital_sign_type.strip().lower())
+        value_num = float(data.value)
+        if loinc_code == "unknown":
+            raise HTTPException(
+                status_code=400,
+                detail="Bad Request"
+            )
+        else:
+            if value_num > ranges["high"]:
+                interp_code = 'H'
+                interp_display = "High"
+            elif value_num < ranges["low"]:
+                interp_code = "L"
+                interp_display = "Low"
+            else:
+                interp_code = "N"
+                interp_display = "Normal"
+            observation = {
+                "resourceType": "Observation",
+                "status":"final",
+                "code":{
+                    "coding":[{
+                        "system":"http://loinc.org",
+                        "code": loinc_code,
+                        "display": data.vital_sign_type
+                    }]
+                },
+                "subject":{
+                    "reference":f"Patient/{data.patient_id}"
+                },
+                "valueQuantity" : {
+                    "value": data.value,
+                    "unit": data.unit
+                },
+                "referenceRange": [{
+                "low": {"value": ranges["low"], "unit": data.unit},
+                "high": {"value": ranges["high"], "unit": data.unit}
+            }],
+            "interpretation": [{
+                "coding": [{
+                    "system": "http://terminology.hl7.org/CodeSystem/v3-ObservationInterpretation",
+                    "code": interp_code,
+                    "display": interp_display
+                }]
+            }]
+            }
+            response = requests.post(f"{HAPI_BASE}/Observation",
+                                    json = observation,
+                                    headers={"Content-Type":"application/fhir+json"},
+                                    timeout=10)
+            return response.json()
+    except requests.exceptions.ConnectionError:
+            raise HTTPException(
+                status_code=503,
+                detail="FHIR Server not available. Is HAPI running?"
+            )
+    except requests.exceptions.Timeout:
+            raise HTTPException(
+                status_code=504,
+                detail="Server too slow. Try again later"
+            )
+    
