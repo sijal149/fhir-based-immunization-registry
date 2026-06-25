@@ -3,7 +3,9 @@ import requests
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi import FastAPI, HTTPException,Request
+from fastapi import Body
 import os
+import hl7 
 
 templates = Jinja2Templates(directory="templates")
 
@@ -387,19 +389,51 @@ def complete_bundle(data: BundleRequest):
             detail="Server too slow. Try again later."
         )
 
-""" 
-{
-  "resourceType": "ValueSet",
-  "id": "nepal-vaccines",
-  "name": "NepalEPIVaccines",
-  "status": "active",
-  "compose": {
-    "include": [{
-      "system": "http://health.gov.np/fhir/CodeSystem/vaccines",
-      "concept": [
-        // your codes here
-      ]
-    }]
-  }
-} 
-"""
+
+@app.post("/convert/adt")
+async def convert_adt(message: str = Body(..., media_type="text/plain")):
+    try:
+        message = message.replace('\n', '\r')
+        h = hl7.parse(message)
+        pid = h.segment('PID')
+        family = str(pid[5][0][0])
+        given = str(pid[5][0][1]) 
+        birthdate_raw = str(pid[7])
+        gender_raw = str(pid[8])
+        def convert_gender(gender_raw):
+            if gender_raw in ['m','M']:
+                return 'male'
+            elif gender_raw in ['f','F']:
+                return 'female'
+        gender = convert_gender(gender_raw)
+        if len(birthdate_raw) == 8:
+            birthdate = f"{birthdate_raw[0:4]}-{birthdate_raw[4:6]}-{birthdate_raw[6:8]}"
+        else:
+            birthdate = "unknown or wrong entry"
+        patient = {
+            "resourceType": "Patient",
+            "id": str(pid[3][0][1]),
+            "gender" : gender,
+            "birthDate" : birthdate,
+            "name": [
+                {
+                    "given":[given],
+                    "family": family
+                }
+            ]
+        }
+        response = requests.post(f"{HAPI_BASE}/Patient",
+                                json = patient,
+                                headers={"Content-Type": "application/fhir+json"},
+                                timeout = 10)
+        return response.json()
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code= 503,
+            detail = "FHIR Server Unavailable. Is HAPI running?"
+        )
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Server too slow. Try again later."
+        )

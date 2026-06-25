@@ -1,0 +1,6 @@
+#!/Users/sijalrupakheti/Desktop/patient_app/venv/bin/python3
+import sys
+from hl7.client import mllp_send
+if __name__ == '__main__':
+    sys.argv[0] = sys.argv[0].removesuffix('.exe')
+    sys.exit(mllp_send())
