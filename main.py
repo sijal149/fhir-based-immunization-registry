@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-import requests
+import requests, jwt, uuid, datetime, httpx
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi import FastAPI, HTTPException,Request
@@ -517,4 +517,106 @@ def create_observation(data: Observation_resource):
                 status_code=504,
                 detail="Server too slow. Try again later"
             )
-    
+
+class Condition_resource(BaseModel):
+    patient_id : str
+    diagnosis_name : str
+    snomed_code: str 
+    icd_code: str 
+    clinical_status: str 
+    verification_status: str
+    severity: str 
+    onset_date : str
+@app.post("/condition")
+def create_condition(data: Condition_resource):
+    severity_codes_mapping = {"mild": "255604002", "moderate":"6736007", "severe": "24484000"}
+    severity_code = severity_codes_mapping.get(data.severity.strip().lower(), "unknown")
+    try:
+        if severity_code == "unknown":
+            raise HTTPException(
+                status_code=400,
+                detail="bad request. severity cannot be unknown"
+            )
+        condition = {
+        "resourceType": "Condition",
+        "clinicalStatus": {
+            "coding": [{
+            "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+            "code": data.clinical_status
+            }]
+        },
+        "verificationStatus": {
+            "coding": [{
+            "system": "http://terminology.hl7.org/CodeSystem/condition-ver-status",
+            "code": data.verification_status
+            }]
+        },
+        "severity": {
+            "coding": [{
+            "system": "http://snomed.info/sct",
+            "code": severity_code,
+            "display": data.severity
+            }]
+        },
+        "code": {
+            "coding": [
+            {
+                "system": "http://snomed.info/sct",
+                "code": data.snomed_code,
+                "display": data.diagnosis_name
+            },
+            {
+                "system": "http://hl7.org/fhir/sid/icd-10",
+                "code": data.icd_code,
+                "display": data.diagnosis_name
+            }
+            ]
+        },
+        "subject": {
+            "reference": f"Patient/{data.patient_id}"
+        },
+        "onsetDateTime": data.onset_date
+        }
+        response = requests.post(f"{HAPI_BASE}/Condition",
+                                json = condition,
+                                headers={"Content-Type":"application/fhir+json"},
+                                timeout=10)
+        return response.json()
+    except requests.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=503,
+            detail="FHIR Server not working. Is HAPI running?"
+        )
+    except requests.exceptions.Timeout:
+        raise HTTPException(
+            status_code=504,
+            detail="Server too slow. Try again later."
+        )
+
+def jwt_build():
+    now_utc = datetime.datetime.now(datetime.timezone.utc)
+    future_utc = now_utc + datetime.timedelta(minutes=5)
+    with open("./private_key.pem", "rb") as f:
+        private_key = f.read()
+    payload = {
+        "iss":"abc001",
+        "sub" :"abc001",
+        "aud" : f"{HAPI_BASE}/auth",
+        "exp" : int(future_utc.timestamp()),
+        "jti" : str(uuid.uuid4())
+    }
+    response_token = jwt.encode(payload, private_key, algorithm='RS256') 
+    return response_token
+
+@app.post("/smart/token-request")
+async def post_token():
+    token = jwt_build()
+    response = httpx.post(f"{HAPI_BASE}/auth",
+                          data = {
+                              "grant_type" : "client_credentials",
+                              "client_assertion_type" : "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+                              "client_assertion" : token
+                          }, 
+                          timeout = 10)
+    response.raise_for_status()
+    return response.json()
