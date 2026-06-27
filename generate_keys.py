@@ -17,3 +17,10 @@ with open("public_key.pem", "wb") as f:
     f. write(public_key_pem)
 
 print("Keys generated: private_key.pem + public_key.pem")
+
+
+
+
+
+
+
