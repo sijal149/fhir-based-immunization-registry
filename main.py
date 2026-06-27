@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException,Request
 from fastapi import Body
 import os
 import hl7 
+import xml.etree.ElementTree as ET
 
 templates = Jinja2Templates(directory="templates")
 
@@ -620,3 +621,85 @@ async def post_token():
                           timeout = 10)
     response.raise_for_status()
     return response.json()
+
+
+ns = {"hl7":"urn:hl7-org:v3"}
+@app.post("/convert/ccda")
+async def ccda_to_fhir(request: Request):
+    patient_xml = await request.body()
+    patient_xml = patient_xml.decode("utf-8")
+    tree = ET.fromstring(patient_xml)
+    name = tree.find("hl7:recordTarget/hl7:patientRole/hl7:patient/hl7:name", ns)
+    given = name.find("hl7:given", ns).text
+    family = name.find("hl7:family", ns).text
+    patient_id = tree.find("hl7:recordTarget/hl7:patientRole/hl7:id", ns).attrib["extension"]
+    birthdate_ccda = tree.find("hl7:recordTarget/hl7:patientRole/hl7:patient/hl7:birthTime", ns).attrib["value"]
+    birthdate_fhir = f"{birthdate_ccda[0:4]}-{birthdate_ccda[4:6]}-{birthdate_ccda[6:8]}"
+    gender_ccda = tree.find("hl7:recordTarget/hl7:patientRole/hl7:patient/hl7:administrativeGenderCode",ns).attrib["code"]
+    gender_map = {"M":"male", "F":"female"}
+    gender = gender_map.get(gender_ccda, "unknown")
+    fhir_patient = {
+        "resourceType" : "Patient",
+        "id" : str(patient_id),
+        "gender" : str(gender),
+        "birthDate" : str(birthdate_fhir),
+        "name" :[
+            {"given":[str(given)],"family":str(family)},
+        ]
+    }
+    # return fhir_patient
+
+    for section in tree.findall(".//hl7:section", ns):
+        templateId = section.find("hl7:templateId", ns)
+        if templateId.attrib["root"] == "2.16.840.1.113883.10.20.22.2.5.1" :
+            conditions= []
+            for observation in section.findall(".//hl7:observation", ns):
+                code = observation.find("hl7:code", ns).attrib["code"]
+                code_system = observation.find("hl7:code", ns).attrib["codeSystem"]
+                display_name = observation.find("hl7:code", ns).attrib["displayName"]
+                status = observation.find("hl7:statusCode",ns).attrib["code"]
+                condition = {
+                    "resourceType" : "Condition",
+                    "id" : "example-id",
+                    "clinicalStatus":{
+                        "coding":[{
+                            "system": "http://terminology.hl7.org/CodeSystem/condition-clinical",
+                            "code": str(status),
+                            "display": "active/other"
+                        }]
+                    },
+                    "code":{
+                        "coding":[{
+                        "system":str(code_system),
+                        "code":str(code),
+                        "display":str(display_name)
+                    }]
+                    }
+                }
+                conditions.append(condition)
+    fhir_bundle = {
+        "resourceType" : "Bundle",
+        "type" : "transaction",
+        "entry":[{
+            "fullUrl" : f"urn:uuid:{uuid.uuid4()}",
+            "resource":{
+                "resourceType" : "Patient",
+                "id" : str(patient_id),
+                "gender" : str(gender),
+                "birthDate" : str(birthdate_fhir),
+                "name" :[
+                    {"given":[str(given)],"family":str(family)},
+                    ]},
+                "request":{
+                            "method":"POST",
+                            "url":"Patient"
+                        }
+                    }]}
+    for condition in conditions:
+        fhir_bundle["entry"].append({
+            "fullUrl": f"urn:uuid:{uuid.uuid4()}",
+            "resource": condition,
+            "request": {"method": "POST", "url": "Condition"}
+        })
+    return fhir_bundle
+        
