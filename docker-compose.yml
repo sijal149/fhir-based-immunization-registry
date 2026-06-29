@@ -1,0 +1,75 @@
+
+services:
+
+  fastapi:
+    build: .
+    container_name: fastapi-app
+    ports:
+      - "8000:8000"
+    environment:
+      - HAPI_BASE_URL=http://hapi-fhir:8080/fhir
+    depends_on:
+      - hapi-fhir
+      - fastapi-db
+    networks:
+      - fhir-network
+
+  fastapi-db:
+    image: postgres:15
+    container_name: fastapi-db
+    environment:
+      - POSTGRES_USER=fastapi
+      - POSTGRES_PASSWORD=fastapi
+      - POSTGRES_DB=fastapidb
+    volumes:
+      - fastapi-db-data:/var/lib/postgresql/data
+    networks:
+      - fhir-network
+
+  hapi-fhir:
+    image: hapiproject/hapi:latest
+    container_name: hapi-fhir
+    ports:
+      - "8080:8080"
+    volumes:
+      - hapi-data:/data/hapi
+    networks:
+      - fhir-network
+
+  mirth-db:
+    image: postgres:15
+    container_name: mirth-db
+    environment:
+      - POSTGRES_USER=mirth
+      - POSTGRES_PASSWORD=mirth
+      - POSTGRES_DB=mirthdb
+    volumes:
+      - mirth-db-data:/var/lib/postgresql/data
+    networks:
+      - fhir-network
+
+  mirth-connect:
+    image: nextgenhealthcare/connect:latest
+    container_name: mirth-connect
+    ports:
+      - "8081:8080"
+      - "8443:8443"
+      - "6661:6661"
+    environment:
+      - DATABASE=postgres
+      - DATABASE_URL=jdbc:postgresql://mirth-db:5432/mirthdb
+      - DATABASE_USERNAME=mirth
+      - DATABASE_PASSWORD=mirth
+    depends_on:
+      - mirth-db
+    networks:
+      - fhir-network
+
+volumes:
+  fastapi-db-data:
+  hapi-data:
+  mirth-db-data:
+
+networks:
+  fhir-network:
+    driver: bridge
