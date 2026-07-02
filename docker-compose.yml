@@ -64,12 +64,27 @@ services:
       - mirth-db
     networks:
       - fhir-network
+  
+  omop-db:
+    image: postgres:15
+    container_name: omop-db
+    environment:
+      - POSTGRES_USER=omop
+      - POSTGRES_PASSWORD=omop
+      - POSTGRES_DB=omopdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - omop-db-data:/var/lib/postgresql/data
+    networks:
+      - fhir-network
 
 volumes:
   fastapi-db-data:
   hapi-data:
   mirth-db-data:
-
+  omop-db-data:
+  
 networks:
   fhir-network:
     driver: bridge

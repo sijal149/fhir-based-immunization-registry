@@ -7,6 +7,8 @@ from fastapi import Body
 import os
 import hl7 
 import xml.etree.ElementTree as ET
+from database import init_db, SessionLocal, PendingReview
+from rapidfuzz import fuzz 
 
 templates = Jinja2Templates(directory="templates")
 
@@ -703,3 +705,77 @@ async def ccda_to_fhir(request: Request):
         })
     return fhir_bundle
         
+def fuzzy_name_score(name1: str, name2: str) -> float:
+    n1 = name1.strip().lower()
+    n2 = name2.strip().lower()
+    return fuzz.ratio(n1,n2)/100
+
+def dob_exact_match(dob1: str, dob2: str) -> bool:
+    return dob1.strip() == dob2.strip()
+
+def compute_match_confidence(name_score: float, dob_match: bool) -> float:
+    dob_weight = 1.0 if dob_match else 0.0
+    return (name_score * 0.4) + (dob_weight*0.6) 
+   
+def classify_match(name_score: float, dob_match:bool, confidence: float) -> str:
+    if name_score >= 0.95 and dob_match:
+        return "auto_link"
+    if confidence < 0.60: 
+        return "new_patient"
+    else:
+        return "manual_review"
+
+class PatientMatchRequest(BaseModel):
+    name: str
+    dob: str
+
+@app.post("/patient/match")
+def patient_match(data: PatientMatchRequest):
+    family_guess = data.name.split()[-1]
+    response = requests.get(f"{HAPI_BASE}/Patient", timeout=10)
+    entries = response.json().get("entry", [])
+
+    best_match_id = None
+    best_name_score = 0.0
+    best_dob_match = False
+    best_confidence = 0.0
+
+    for item in entries:
+        resource = item["resource"]
+        existing_name = resource["name"][0]["given"][0] + " " + resource["name"][0]["family"]
+        existing_dob = resource.get("birthDate", "")
+
+        name_score = fuzzy_name_score(data.name, existing_name)
+        dob_match = dob_exact_match(data.dob, existing_dob)
+        confidence = compute_match_confidence(name_score, dob_match)
+
+        if confidence > best_confidence:
+            best_confidence = confidence
+            best_match_id = resource["id"]
+            best_name_score = name_score
+            best_dob_match = dob_match
+
+    zone = classify_match(best_name_score, best_dob_match, best_confidence)
+
+    if zone == "auto_link":
+        return {"action": "auto_link", "patient_id": best_match_id, "confidence": best_confidence}
+
+    elif zone == "manual_review":
+        #full scoring breakdown 
+        db = SessionLocal()
+        record = PendingReview(
+            incoming_name=data.name,
+            incoming_dob=data.dob,
+            matched_patient_id=best_match_id,
+            name_score=best_name_score,
+            dob_match=int(best_dob_match),  # stored as 0/1 
+            confidence=best_confidence
+        )
+        db.add(record)
+        db.commit()
+        db.close()
+        return {"action": "manual_review", "confidence": best_confidence}
+
+    else:
+        # no confident match, and no candidates found
+        return {"action": "new_patient", "confidence": best_confidence}
